@@ -8,9 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "service"))
 
 from app.worker import evaluate_patient_anomalies
 
-DB_URL = "postgresql+asyncpg://cogdrift:dev_only_change_me@localhost:5432/cogdrift"
-engine = create_async_engine(DB_URL, echo=False)
-AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
+from app.database import engine, AsyncSessionLocal
 
 async def main():
     df = pd.read_csv("./data/ground_truth_events.csv")
