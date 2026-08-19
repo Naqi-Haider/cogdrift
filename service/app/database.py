@@ -4,8 +4,20 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 
+def normalize_db_url(url: str) -> str:
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    url = url.replace("sslmode=require", "ssl=require")
+    url = url.replace("&channel_binding=require", "").replace("channel_binding=require&", "").replace("channel_binding=require", "")
+    return url
+
+
+db_url = normalize_db_url(settings.DATABASE_URL)
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    db_url,
     echo=False,
     future=True,
 )

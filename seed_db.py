@@ -4,122 +4,133 @@ import asyncio
 import uuid
 from datetime import date
 import pandas as pd
-from sqlalchemy import select, func, and_
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy import select, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "service"))
 
-from app.config import settings
-from app.models import Base, Patient, GameCatalog, InitialAssessment, GameSession, DailyScore, Flag, AuditLog
+from app.models import Base, Patient, GameCatalog, InitialAssessment, GameSession, DailyScore, Flag
 from app.worker import evaluate_patient_anomalies
-
-DB_URL = "postgresql+asyncpg://cogdrift:dev_only_change_me@localhost:5432/cogdrift"
-engine = create_async_engine(DB_URL, echo=False)
-AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
+from app.database import engine, AsyncSessionLocal
 
 
 async def seed():
     data_dir = "./data"
     if not os.path.exists(os.path.join(data_dir, "patients.csv")):
-        print("Data directory ./data not found!")
+        print("Data directory ./data not found! Run generate_dataset.py first.")
         return
 
-    print("Populating PostgreSQL database from synthetic CSV dataset in ./data...")
+    print("Populating PostgreSQL database with fast bulk batching...")
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     async with AsyncSessionLocal() as session:
         # 1. Patients
+        print("  -> Inserting patients...")
         patients_df = pd.read_csv(os.path.join(data_dir, "patients.csv"))
-        for _, r in patients_df.iterrows():
-            p = await session.get(Patient, r["patient_id"])
-            if not p:
-                session.add(
-                    Patient(
-                        patient_id=r["patient_id"],
-                        age=int(r["age"]),
-                        diagnosis_stage=r["diagnosis_stage"],
-                        enrollment_date=date.fromisoformat(str(r["enrollment_date"])),
-                    )
-                )
+        patients_data = [
+            {
+                "patient_id": str(r["patient_id"]),
+                "age": int(r["age"]),
+                "diagnosis_stage": str(r["diagnosis_stage"]),
+                "enrollment_date": date.fromisoformat(str(r["enrollment_date"])),
+            }
+            for _, r in patients_df.iterrows()
+        ]
+        if patients_data:
+            stmt = pg_insert(Patient).values(patients_data).on_conflict_do_nothing()
+            await session.execute(stmt)
 
         # 2. Game Catalog
+        print("  -> Inserting game catalog...")
         catalog_df = pd.read_csv(os.path.join(data_dir, "game_catalog.csv"))
-        for _, r in catalog_df.iterrows():
-            g = await session.get(GameCatalog, int(r["game_id"]))
-            if not g:
-                session.add(
-                    GameCatalog(
-                        game_id=int(r["game_id"]),
-                        game_name=r["game_name"],
-                        cognitive_domain=r["cognitive_domain"],
-                        scoring_fidelity=r["scoring_fidelity"],
-                    )
-                )
+        catalog_data = [
+            {
+                "game_id": int(r["game_id"]),
+                "game_name": str(r["game_name"]),
+                "cognitive_domain": str(r["cognitive_domain"]),
+                "scoring_fidelity": str(r["scoring_fidelity"]),
+            }
+            for _, r in catalog_df.iterrows()
+        ]
+        if catalog_data:
+            stmt = pg_insert(GameCatalog).values(catalog_data).on_conflict_do_nothing()
+            await session.execute(stmt)
 
         # 3. Initial Assessments
+        print("  -> Inserting initial assessments...")
         ia_df = pd.read_csv(os.path.join(data_dir, "initial_assessments.csv"))
-        for _, r in ia_df.iterrows():
-            ia = await session.get(InitialAssessment, r["patient_id"])
-            if not ia:
-                session.add(
-                    InitialAssessment(
-                        patient_id=r["patient_id"],
-                        assessed_at=date.fromisoformat(str(r["assessed_at"])),
-                        score=int(r["score"]),
-                    )
-                )
+        ia_data = [
+            {
+                "patient_id": str(r["patient_id"]),
+                "assessed_at": date.fromisoformat(str(r["assessed_at"])),
+                "score": int(r["score"]),
+            }
+            for _, r in ia_df.iterrows()
+        ]
+        if ia_data:
+            stmt = pg_insert(InitialAssessment).values(ia_data).on_conflict_do_nothing()
+            await session.execute(stmt)
 
-        # 4. Daily Scores
+        # 4. Daily Scores (Batching in chunks of 5,000)
+        print("  -> Inserting daily scores in bulk batches...")
         daily_df = pd.read_csv(os.path.join(data_dir, "daily_scores.csv"))
-        for _, r in daily_df.iterrows():
-            ds = await session.get(DailyScore, (r["patient_id"], date.fromisoformat(str(r["date"]))))
-            if not ds:
-                session.add(
-                    DailyScore(
-                        patient_id=r["patient_id"],
-                        date=date.fromisoformat(str(r["date"])),
-                        games_played=int(r["games_played"]),
-                        daily_cognitive_score=float(r["daily_cognitive_score"]),
-                    )
-                )
+        daily_data = [
+            {
+                "patient_id": str(r["patient_id"]),
+                "date": date.fromisoformat(str(r["date"])),
+                "games_played": int(r["games_played"]),
+                "daily_cognitive_score": float(r["daily_cognitive_score"]),
+            }
+            for _, r in daily_df.iterrows()
+        ]
+        chunk_size = 5000
+        for i in range(0, len(daily_data), chunk_size):
+            chunk = daily_data[i : i + chunk_size]
+            stmt = pg_insert(DailyScore).values(chunk).on_conflict_do_nothing()
+            await session.execute(stmt)
 
-        # 5. Game Sessions
+        # 5. Game Sessions (Batching in chunks of 5,000)
+        print("  -> Inserting game sessions in bulk batches...")
         sessions_df = pd.read_csv(os.path.join(data_dir, "game_sessions.csv"))
-        for _, r in sessions_df.iterrows():
-            sid = uuid.UUID(str(r["session_id"]))
-            gs = await session.get(GameSession, sid)
-            if not gs:
-                session.add(
-                    GameSession(
-                        session_id=sid,
-                        patient_id=r["patient_id"],
-                        game_id=int(r["game_id"]),
-                        score=int(r["score"]),
-                        played_at=date.fromisoformat(str(r["played_at"])),
-                    )
-                )
+        sessions_data = [
+            {
+                "session_id": uuid.UUID(str(r["session_id"])),
+                "patient_id": str(r["patient_id"]),
+                "game_id": int(r["game_id"]),
+                "score": int(r["score"]),
+                "played_at": date.fromisoformat(str(r["played_at"])),
+            }
+            for _, r in sessions_df.iterrows()
+        ]
+        for i in range(0, len(sessions_data), chunk_size):
+            chunk = sessions_data[i : i + chunk_size]
+            stmt = pg_insert(GameSession).values(chunk).on_conflict_do_nothing()
+            await session.execute(stmt)
 
         await session.commit()
-        print("CSVs loaded successfully into Postgres!")
+        print("  ✓ All CSV datasets successfully loaded into PostgreSQL!")
 
-        print("Evaluating all daily score dates for patients to populate clinician review queue...")
-        unique_pids = patients_df["patient_id"].unique()
+        # 6. Evaluate baseline anomalies to populate initial clinician review queue
+        print("  -> Evaluating anomaly detectors for active patient cohort...")
+        unique_pids = list(patients_df["patient_id"].unique())
+        
+        # Evaluate each patient on their most recent day to seed active clinician queue
         for pid in unique_pids:
-            patient_daily_df = daily_df[daily_df["patient_id"] == pid].sort_values("date")
-            for d in patient_daily_df["date"].tolist()[14:]: # Skip cold start <14 days
-                try:
-                    await evaluate_patient_anomalies(pid, target_date_str=str(d))
-                except Exception:
-                    pass
+            try:
+                await evaluate_patient_anomalies(pid)
+            except Exception as e:
+                pass
 
         await session.commit()
 
         # Check total pending flags
         res = await session.execute(select(func.count()).select_from(Flag).where(Flag.status == "pending"))
         flag_count = res.scalar()
-        print(f"Seeding complete! Database is populated with {len(unique_pids)} patients and {flag_count} active pending flags.")
+        print(f"\n=================================================================")
+        print(f"  ✓ Seeding Complete! Successfully populated {len(unique_pids)} patients and {flag_count} flags.")
+        print(f"=================================================================\n")
 
 
 if __name__ == "__main__":
