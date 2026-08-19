@@ -197,3 +197,35 @@ def test_caregiver_rbac_endpoint_scoping():
         assert res_tampered.status_code == 401
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+def test_internal_reconcile_endpoint_auth(monkeypatch):
+    client = TestClient(app)
+
+    # 1. Missing X-Admin-Token -> 403 Forbidden
+    res_missing = client.post("/internal/reconcile")
+    assert res_missing.status_code == 403
+
+    # 2. Invalid X-Admin-Token -> 403 Forbidden
+    res_invalid = client.post(
+        "/internal/reconcile",
+        headers={"X-Admin-Token": "invalid_secret_token_123"}
+    )
+    assert res_invalid.status_code == 403
+
+    # Mock nightly_reconciliation_pass to prevent full DB loop during unit test
+    reconciled_called = []
+    async def dummy_reconcile():
+        reconciled_called.append(True)
+
+    monkeypatch.setattr("app.worker.nightly_reconciliation_pass", dummy_reconcile)
+
+    # 3. Valid X-Admin-Token -> 200 OK
+    res_valid = client.post(
+        "/internal/reconcile",
+        headers={"X-Admin-Token": settings.ADMIN_RECONCILE_TOKEN}
+    )
+    assert res_valid.status_code == 200
+    assert res_valid.json()["status"] == "reconciliation_complete"
+    assert len(reconciled_called) == 1
+

@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "dev_jwt_secret_change_in_production_key_12345"
     JWT_ALGORITHM: str = "HS256"
     
+    EVENT_BROKER_MODE: str = "in_process"  # "in_process" (serverless/showcase) or "rabbitmq" (distributed)
+    ADMIN_RECONCILE_TOKEN: str = "dev_admin_reconcile_token_secret_12345"
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -1,9 +1,12 @@
+import os
+import secrets
 import uuid
 import re
 from datetime import datetime, date, timedelta
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, Query, status
+from fastapi import FastAPI, Depends, HTTPException, Query, status, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 import numpy as np
@@ -147,6 +150,7 @@ async def health_check():
 @app.post("/ingest/session", response_model=SessionIngestResponse)
 async def ingest_game_session(
     body: SessionIngestRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     session_uuid = body.session_id or uuid.uuid4()
@@ -196,12 +200,20 @@ async def ingest_game_session(
 
     await db.commit()
 
-    # Publish RabbitMQ event
-    await publish_score_ingested(
-        patient_id=body.patient_id,
-        played_at=body.played_at.isoformat(),
-        session_id=str(session_uuid),
-    )
+    # Event dispatch: in-process BackgroundTasks vs distributed RabbitMQ
+    if settings.EVENT_BROKER_MODE == "in_process":
+        from app.worker import evaluate_patient_anomalies
+        background_tasks.add_task(
+            evaluate_patient_anomalies,
+            body.patient_id,
+            body.played_at.isoformat(),
+        )
+    else:
+        await publish_score_ingested(
+            patient_id=body.patient_id,
+            played_at=body.played_at.isoformat(),
+            session_id=str(session_uuid),
+        )
 
     return SessionIngestResponse(
         session_id=session_uuid,
@@ -506,3 +518,37 @@ async def get_caregiver_messages(
             )
         )
     return messages
+
+
+# ---------------------------------------------------------------------------
+# Internal Maintenance & External Cron Reconcile Endpoints (Cloud Scheduler)
+# ---------------------------------------------------------------------------
+
+@app.post("/internal/reconcile")
+async def reconcile_internal(
+    x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
+):
+    """
+    Nightly reconciliation endpoint triggered externally by Cloud Scheduler (see DEPLOYMENT_SPEC.md §5).
+    Protected by shared secret comparison using constant-time secrets.compare_digest.
+    """
+    if not x_admin_token or not secrets.compare_digest(x_admin_token, settings.ADMIN_RECONCILE_TOKEN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or missing admin reconciliation token",
+        )
+
+    from app.worker import nightly_reconciliation_pass
+    await nightly_reconciliation_pass()
+    return {
+        "status": "reconciliation_complete",
+        "timestamp": datetime.utcnow().isoformat(),
+        "disclaimer": MANDATORY_DISCLAIMER,
+    }
+
+
+# Static files mount for optional single-URL showcase deployment
+static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+if os.path.isdir(static_dir):
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+
