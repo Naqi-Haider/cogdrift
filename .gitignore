@@ -1,0 +1,27 @@
+# Environment and local configs
+.env
+.env.local
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.pkl
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Node / Frontend artifacts
+node_modules/
+demo-ui/node_modules/
+demo-ui/dist/
+.npm
+
+# Generated data
+data/
+
+# Internal specifications and generator notes
+COGDRIFT_SPEC.md
+cogdrift-ui-improvements-v2.md
+generator_requirements.txt
