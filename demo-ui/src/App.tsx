@@ -6,7 +6,7 @@ import { TrendPoint } from './types';
 import { NeurohavenLogo } from './components/NeurohavenLogo';
 import { Activity, Lock, RefreshCw, UserCheck, HeartHandshake, Wrench, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8000';
 
 export const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<'clinician' | 'caregiver'>('clinician');
@@ -36,7 +36,7 @@ export const App: React.FC = () => {
           setCaregiverToken(data.dev_seeded_tokens.caregiver_token);
         }
       })
-      .catch(() => setServiceStatus('Offline (FastAPI server on 8000)'));
+      .catch(() => setServiceStatus('Offline'));
   }, []);
 
   const fetchPatientTrend = async (pid: string) => {
@@ -111,8 +111,12 @@ export const App: React.FC = () => {
                 <h1 className="text-base font-extrabold tracking-tight text-nh-text-main">
                   CogDrift Engine
                 </h1>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-nh-green-light text-nh-green-deep border border-[#d2e4d8]">
-                  Clinical Monitoring
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  serviceStatus === 'healthy' || serviceStatus === 'ok'
+                    ? 'bg-nh-green-light text-nh-green-deep border-[#d2e4d8]'
+                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                }`}>
+                  {serviceStatus === 'healthy' ? 'Cloud Connected' : serviceStatus}
                 </span>
               </div>
             </div>

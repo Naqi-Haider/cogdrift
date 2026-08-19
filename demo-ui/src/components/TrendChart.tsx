@@ -9,7 +9,6 @@ import {
   Tooltip,
   CartesianGrid,
   Dot,
-  Scatter,
 } from 'recharts';
 import { TrendPoint, AnomalyMarker } from '../types';
 import { Calendar, Eye, EyeOff, AlertCircle, Activity, ShieldAlert } from 'lucide-react';
