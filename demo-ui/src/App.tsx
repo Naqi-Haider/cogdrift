@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { TrendChart } from './components/TrendChart';
 import { ReviewQueue } from './components/ReviewQueue';
 import { CaregiverView } from './components/CaregiverView';
-import { TrendPoint } from './types';
+import { TrendPoint, AnomalyMarker } from './types';
 import { NeurohavenLogo } from './components/NeurohavenLogo';
 import { Activity, Lock, RefreshCw, UserCheck, HeartHandshake, Wrench, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -15,6 +15,7 @@ export const App: React.FC = () => {
   const [caregiverPatientId, setCaregiverPatientId] = useState<string>('P0004');
   const [selectedPatientId, setSelectedPatientId] = useState<string>('P0004');
   const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
+  const [trendAnomalies, setTrendAnomalies] = useState<AnomalyMarker[]>([]);
   const [loadingTrend, setLoadingTrend] = useState<boolean>(false);
   const [serviceStatus, setServiceStatus] = useState<string>('Connecting...');
   
@@ -47,11 +48,14 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setTrendPoints(data.points || []);
+        setTrendAnomalies(data.anomalies || []);
       } else {
         setTrendPoints([]);
+        setTrendAnomalies([]);
       }
     } catch {
       setTrendPoints([]);
+      setTrendAnomalies([]);
     } finally {
       setLoadingTrend(false);
     }
@@ -276,7 +280,7 @@ export const App: React.FC = () => {
                   </div>
                 </div>
 
-                <TrendChart patientId={selectedPatientId} points={trendPoints} />
+                <TrendChart patientId={selectedPatientId} points={trendPoints} anomalies={trendAnomalies} />
               </div>
             </>
           ) : (
