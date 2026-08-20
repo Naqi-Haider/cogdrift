@@ -10,7 +10,7 @@ CogDrift watches daily cognitive-game performance for early-stage Alzheimer's pa
 
 ## Live Cloud Showcase & Architecture
 
-The entire CogDrift system is deployed and runnable as a cloud-native architecture across three dedicated tiers:
+The entire CogDrift system is deployed and runnable across three dedicated tiers:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -40,8 +40,8 @@ The entire CogDrift system is deployed and runnable as a cloud-native architectu
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Frontend (Vercel)**: Deployed from the [`demo-ui`](./demo-ui) directory. Connects securely to the live backend API via `VITE_API_BASE_URL`.
-- **Backend (Back4App Containers)**: Dockerized FastAPI container running 24/7 with zero-cost continuous uptime, automatic health monitoring (`/health`), and dynamic URL auto-normalization for async PostgreSQL.
+- **Frontend (Vercel)**: Deployed from the [`demo-ui`](./demo-ui) directory. Connects to the backend API via `VITE_API_BASE_URL`.
+- **Backend (Back4App Containers)**: Dockerized FastAPI container with automated health monitoring (`/health`) and dynamic URL auto-normalization for async PostgreSQL.
 - **Database (Neon PostgreSQL)**: Cloud-hosted serverless PostgreSQL with SSL encryption and async connection pooling.
 
 ---
@@ -103,22 +103,26 @@ CogDrift features a **dual-mode event dispatcher** configured via `EVENT_BROKER_
 
 CogDrift ships with a full evaluation harness (`evaluate.py`) against a synthetic, privacy-safe dataset with known ground-truth decline events. Building it correctly took real iteration, and the failure modes found along the way are worth stating plainly rather than hiding:
 
-- An early version of the hyperparameter grid search wasn't actually testing different model configurations — it was reinterpreting one fixed model's output through an unrelated formula. Fixed by properly deriving thresholds from the model's real score distribution.
-- Precision and recall were briefly computed by mixing two different units (per-patient counts against per-flag-instance counts) — an apples-to-oranges ratio that looked plausible and wasn't. Fixed by separating them into two clearly labeled metrics.
-- Unconstrained F1 optimization discovered and selected a **"flag every patient at least once"** configuration — because with enough independent daily tests, that's a mathematical inevitability (multiple-comparisons problem), and F1 alone doesn't penalize it enough. Fixed by adding a persistence requirement to the pattern detector and constraining hyperparameter selection to a stable-FPR ceiling, not raw F1-argmax.
-- A subtle self-evaluation leakage bug let the Isolation Forest partially train on the same days it was later scoring for persistence — biasing results in a way that took careful tracing to find. Fixed by strictly excluding the full evaluation window from training.
-- Extended the contamination grid down to `0.005` to resolve feasibility boundary limits, satisfying the clinically mandated false-positive ceiling ($\text{CV Stable FPR} \le 0.30$).
+1. **Fake grid search**: An early version of the hyperparameter grid search wasn't actually testing different model configurations — it was reinterpreting one fixed model's output through an unrelated formula. Fixed by properly deriving thresholds from the model's real score distribution.
+2. **Mixed-unit metrics**: Precision and recall were briefly computed by mixing two different units (per-patient counts against per-flag-instance counts) — an apples-to-oranges ratio that looked plausible and wasn't. Fixed by separating them into two clearly labeled metrics.
+3. **Degenerate F1-argmax selection**: Unconstrained F1 optimization discovered and selected a "flag every patient at least once" configuration — because with enough independent daily tests, that's a mathematical inevitability (multiple-comparisons problem), and F1 alone doesn't penalize it enough. Fixed by adding a persistence requirement to the pattern detector and constraining hyperparameter selection to a stable-FPR ceiling, not raw F1-argmax.
+4. **Self-evaluation leakage**: A subtle self-evaluation leakage bug let the Isolation Forest partially train on the same days it was later scoring for persistence — biasing results in a way that took careful tracing to find. Fixed by strictly excluding the full evaluation window from training.
+5. **Code path divergence on unified functions**: Even after "unifying" the evaluation and production code into one shared function, they were initially invoked differently enough to still diverge — a reminder that "calls the same function" and "exercises the same code path" are different claims, and both require explicit validation.
 
 **The final, honest numbers**, on a stratified 70/30 split with 5-fold cross-validated, FPR-constrained hyperparameter selection (`contamination=0.005`, `pattern_persistence=3`, `score_threshold=0.0097`):
 
 | Metric | Value | Notes |
 |---|---|---|
-| Cross-Validation Stable FPR | **0.291** | Meets clinical constraint ($\le 0.30$) |
-| Held-Out Volatile Patient FPR | **0.200** | Dropped from 0.800 with tuned contamination |
-| Held-Out Stable Patient FPR | **0.375** | Held-out validation sample |
-| Patient-level recall | **0.222** (4/18) | Catches rapid sudden-onset decline |
-| Median lag, sudden decline | **4.5 days** | Quick turnaround on acute decline |
-| Median lag, gradual decline | *not currently detected* | Documented baseline limitation |
+| **Held-Out Stable Patient FPR** | **0.375** (9/24) | Primary generalization validation result (unseen stable patients) |
+| **Held-Out Volatile Patient FPR** | **0.200** (1/5) | Measured on held-out volatile patient validation group |
+| **Patient-Level Recall** | **0.222** (4/18) | Catches acute sudden-onset decline events |
+| **Median Lag, Sudden Decline** | **4.5 days** | Turnaround time on detected acute decline cases |
+| **Median Lag, Gradual Decline** | *not currently detected* | Documented baseline limitation across all tested configs |
+| Cross-Validation Stable FPR (Selection) | 0.291 | Model selection estimate on training folds |
+
+> **Note on generalization**: The held-out result (**0.375**) is the primary generalization metric to evaluate; the cross-validation selection estimate (**0.291**) was modestly optimistic by a margin consistent with a small validation cohort (24 held-out stable patients).
+
+This is a conservative system: it currently catches some sudden-onset decline and misses gradual decline entirely, across every configuration tested. That's a real, specific, documented limitation — not glossed over with a vague "future work" line. The most likely next lever is per-patient-relative feature normalization (comparing a patient against their own historical spread rather than a pooled population threshold), which is genuine v2 scope, not a quick tuning fix.
 
 ---
 
@@ -161,19 +165,21 @@ PYTHONPATH=service pytest service/tests/test_engine.py
 
 ## Environment Variables Configuration
 
-| Variable | Description | Default / Recommended |
+> ⚠️ **Security Warning**: Secrets (`JWT_SECRET`, `ADMIN_RECONCILE_TOKEN`, database credentials) must be generated as cryptographically strong random values and stored exclusively in private environment variables (e.g. Back4App / Vercel dashboard settings). Never commit production secrets to source control.
+
+| Variable | Description | Example / Default |
 |---|---|---|
-| `DATABASE_URL` | PostgreSQL connection string (`asyncpg`) | `postgresql+asyncpg://...` |
+| `DATABASE_URL` | PostgreSQL connection string (`asyncpg`) | `postgresql+asyncpg://<user>:<password>@<host>/<db>?ssl=require` |
 | `EVENT_BROKER_MODE` | Event dispatch mode (`in_process` or `rabbitmq`) | `in_process` |
-| `JWT_SECRET` | Secret key for signing clinician/caregiver JWTs | `dev_jwt_secret_change_in_production_key_12345` |
-| `ADMIN_RECONCILE_TOKEN` | Token for authenticating `/internal/reconcile` | `dev_admin_reconcile_token_secret_12345` |
+| `JWT_SECRET` | Secret key for signing clinician/caregiver JWTs | `<generate-secure-random-secret>` |
+| `ADMIN_RECONCILE_TOKEN` | Token for authenticating `/internal/reconcile` | `<generate-secure-random-token>` |
 | `BASELINE_WINDOW_DAYS` | Rolling window length for personal baseline | `30` |
 | `COLD_START_MIN_DAYS` | Minimum days of history required before flagging | `14` |
 | `TREND_Z_THRESHOLD` | Standard deviation threshold for trend drop | `-2.0` |
 | `TREND_PERSISTENCE_DAYS`| Consecutive days required for trend flag | `3` |
 | `ISOLATION_FOREST_CONTAMINATION` | Expected anomaly contamination rate | `0.005` |
 | `PATTERN_PERSISTENCE_DAYS` | Consecutive anomalous days for pattern flag | `3` |
-| `VITE_API_BASE_URL` | Frontend API URL pointing to Back4App container | `https://cogdrift-api-xxxx.b4a.run` |
+| `VITE_API_BASE_URL` | Frontend API URL pointing to backend service | `https://<your-backend-app>.b4a.run` |
 
 ---
 
