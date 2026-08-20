@@ -18,6 +18,7 @@ interface TrendChartProps {
   points: TrendPoint[];
   anomalies?: AnomalyMarker[];
   onSelectDate?: (date: string) => void;
+  isLoading?: boolean;
 }
 
 export const TrendChart: React.FC<TrendChartProps> = ({
@@ -25,6 +26,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   points,
   anomalies = [],
   onSelectDate,
+  isLoading = false,
 }) => {
   // Filter States
   const [rangeFilter, setRangeFilter] = useState<'30D' | '60D' | 'ALL' | 'CUSTOM'>('30D');
@@ -128,7 +130,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
 
           <div className="flex justify-between items-center">
             <span className="text-nh-text-muted font-medium">Rolling Mean:</span>
-            <span className="font-semibold text-nh-green-accent">{data.rolling_mean}</span>
+            <span className="semibold text-nh-green-accent">{data.rolling_mean}</span>
           </div>
 
           <div className="flex justify-between items-center">
@@ -138,16 +140,14 @@ export const TrendChart: React.FC<TrendChartProps> = ({
 
           {data.is_anomaly && (
             <div className="pt-1.5 border-t border-[#edf3ee] space-y-1">
-              <div className="flex justify-between items-center">
-                <span className="text-nh-text-muted font-medium">Detector:</span>
-                <span className="font-bold text-nh-green-deep">{data.anomaly_detector}</span>
+              <div className="flex justify-between text-[11px]">
+                <span className="text-red-700 font-semibold">Detector:</span>
+                <span className="font-mono text-red-800">{data.anomaly_detector}</span>
               </div>
               {data.z_score !== null && (
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between text-[11px]">
                   <span className="text-nh-text-muted font-medium">Z-Score:</span>
-                  <span className={`font-bold ${data.z_score < -2.0 ? 'text-red-600' : 'text-nh-text-main'}`}>
-                    {data.z_score}
-                  </span>
+                  <span className="font-mono text-nh-text-main font-bold">{data.z_score}</span>
                 </div>
               )}
             </div>
@@ -159,61 +159,45 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   };
 
   return (
-    <div className="space-y-4">
-      {/* Bento Grid Header Controls */}
+    <div className="space-y-6">
+      {/* 3-Card Bento Top Controls Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Bento 1: Time Horizon Selection */}
+        {/* Bento 1: Horizon Pill Filter Card */}
         <div className="bg-white border border-[#e1eae3] rounded-2xl p-4 shadow-nh-card flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold text-nh-green-accent uppercase tracking-wider flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-nh-green-deep" />
+            <span className="text-[11px] font-bold text-nh-text-muted uppercase tracking-wider flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-nh-green-accent" />
               Time Horizon
             </span>
-            <span className="text-[11px] font-mono text-nh-text-muted font-semibold">
-              {filteredPoints.length} Days
+            <span className="text-[11px] font-mono text-nh-green-deep font-bold">
+              {isLoading ? '...' : `${chartData.length} Days`}
             </span>
           </div>
 
-          <div className="grid grid-cols-3 gap-1 bg-nh-green-subtle p-1 rounded-xl border border-[#d8e5dc]">
-            <button
-              onClick={() => setRangeFilter('30D')}
-              className={`py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
-                rangeFilter === '30D'
-                  ? 'bg-nh-green-deep text-white shadow-sm'
-                  : 'text-nh-text-muted hover:text-nh-green-deep'
-              }`}
-            >
-              30D
-            </button>
-            <button
-              onClick={() => setRangeFilter('60D')}
-              className={`py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
-                rangeFilter === '60D'
-                  ? 'bg-nh-green-deep text-white shadow-sm'
-                  : 'text-nh-text-muted hover:text-nh-green-deep'
-              }`}
-            >
-              60D
-            </button>
-            <button
-              onClick={() => setRangeFilter('CUSTOM')}
-              className={`py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
-                rangeFilter === 'CUSTOM'
-                  ? 'bg-nh-green-deep text-white shadow-sm'
-                  : 'text-nh-text-muted hover:text-nh-green-deep'
-              }`}
-            >
-              Custom
-            </button>
+          <div className="flex items-center bg-nh-green-subtle p-1 rounded-xl border border-[#d8e5dc] gap-1">
+            {(['30D', '60D', 'CUSTOM'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setRangeFilter(mode)}
+                className={`flex-1 py-1 text-xs font-bold rounded-lg transition-all ${
+                  rangeFilter === mode
+                    ? 'bg-white text-nh-green-deep shadow-xs border border-[#d8e5dc]'
+                    : 'text-nh-text-muted hover:text-nh-green-deep'
+                }`}
+              >
+                {mode === 'CUSTOM' ? 'Custom' : mode}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Bento 2: Data Layers Visibility */}
+        {/* Bento 2: Layer Controls (Series Toggles) */}
         <div className="bg-white border border-[#e1eae3] rounded-2xl p-4 shadow-nh-card flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-nh-green-accent uppercase tracking-wider block mb-2">
+          <span className="text-[11px] font-bold text-nh-text-muted uppercase tracking-wider block mb-2">
             Layer Controls
           </span>
-          <div className="flex flex-wrap gap-1.5">
+
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               onClick={() => setShowDailyScore(!showDailyScore)}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 border transition-all ${
@@ -225,6 +209,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
               {showDailyScore ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
               Daily
             </button>
+
             <button
               onClick={() => setShowRollingMean(!showRollingMean)}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 border transition-all ${
@@ -236,17 +221,19 @@ export const TrendChart: React.FC<TrendChartProps> = ({
               {showRollingMean ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
               Mean
             </button>
+
             <button
               onClick={() => setShowBaselineBand(!showBaselineBand)}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 border transition-all ${
                 showBaselineBand
-                  ? 'bg-emerald-100 text-nh-green-deep border-emerald-300'
+                  ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
                   : 'bg-nh-green-subtle text-nh-text-muted border-[#d8e5dc]'
               }`}
             >
               {showBaselineBand ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
               Band
             </button>
+
             <button
               onClick={() => setShowAnomalies(!showAnomalies)}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 border transition-all ${
@@ -261,21 +248,27 @@ export const TrendChart: React.FC<TrendChartProps> = ({
           </div>
         </div>
 
-        {/* Bento 3: Elevated Current Score Metric Card (P2 Item 14) */}
+        {/* Bento 3: Elevated Current Score Metric Card */}
         <div className="bg-white border border-[#e1eae3] rounded-2xl p-4 shadow-nh-card flex items-center justify-between">
           <div>
             <span className="text-[11px] font-bold text-nh-text-muted uppercase tracking-wider block">
               Patient {patientId} Score
             </span>
             <div className="flex items-baseline space-x-2 mt-1">
-              <span className="text-3xl font-black text-nh-green-deep tracking-tight">
-                {latestPoint ? latestPoint.daily_cognitive_score : '--'}
-              </span>
-              <span className="text-xs text-nh-text-muted font-bold">/ 10.0 Daily</span>
+              {isLoading ? (
+                <div className="h-8 w-20 bg-slate-200 animate-pulse rounded-lg mt-1" />
+              ) : (
+                <>
+                  <span className="text-3xl font-black text-nh-green-deep tracking-tight">
+                    {latestPoint ? latestPoint.daily_cognitive_score : '--'}
+                  </span>
+                  <span className="text-xs text-nh-text-muted font-bold">/ 10.0 Daily</span>
+                </>
+              )}
             </div>
           </div>
           <div className="p-3.5 bg-nh-green-light rounded-2xl text-nh-green-deep">
-            <Activity className="w-7 h-7" />
+            <Activity className={`w-7 h-7 ${isLoading ? 'animate-pulse' : ''}`} />
           </div>
         </div>
       </div>
@@ -334,13 +327,45 @@ export const TrendChart: React.FC<TrendChartProps> = ({
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full border border-slate-400 bg-white"></span>Dismissed</span>
             </div>
 
-            <span className="text-xs font-mono px-3 py-1 bg-nh-green-subtle text-nh-green-deep border border-[#d8e5dc] rounded-full font-bold">
-              {chartData.length} Days Rendered
-            </span>
+            {isLoading ? (
+              <span className="text-xs font-mono px-3 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-full font-bold animate-pulse flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-nh-green-deep animate-ping"></span>
+                Loading Telemetry...
+              </span>
+            ) : (
+              <span className="text-xs font-mono px-3 py-1 bg-nh-green-subtle text-nh-green-deep border border-[#d8e5dc] rounded-full font-bold">
+                {chartData.length} Days Rendered
+              </span>
+            )}
           </div>
         </div>
 
-        {chartData.length === 0 ? (
+        {isLoading ? (
+          /* Clinical Shimmer Skeleton Loader */
+          <div className="h-72 w-full flex flex-col justify-between p-6 bg-slate-50/70 rounded-2xl border border-[#e8efe9] relative overflow-hidden animate-pulse">
+            <div className="flex justify-between items-center">
+              <div className="h-4 w-40 bg-slate-200/80 rounded-md"></div>
+              <div className="h-4 w-28 bg-slate-200/80 rounded-md"></div>
+            </div>
+
+            {/* Shimmer wave representation */}
+            <div className="relative h-36 w-full flex items-center justify-center my-2">
+              <div className="absolute inset-x-4 top-1/4 h-20 bg-gradient-to-r from-emerald-100/40 via-emerald-200/60 to-emerald-100/40 rounded-2xl"></div>
+              <div className="absolute inset-x-4 top-1/2 h-0.5 border-b border-dashed border-emerald-400/50"></div>
+              <div className="z-10 bg-white/95 backdrop-blur-sm border border-[#d2e4d8] rounded-full px-5 py-2.5 shadow-sm flex items-center gap-2.5 text-xs font-bold text-nh-green-deep">
+                <Activity className="w-4 h-4 animate-spin text-nh-green-accent" />
+                <span>Fetching Patient {patientId} Cognitive Trajectory...</span>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center pt-3 border-t border-slate-200/60">
+              <div className="h-3 w-16 bg-slate-200/70 rounded"></div>
+              <div className="h-3 w-16 bg-slate-200/70 rounded"></div>
+              <div className="h-3 w-16 bg-slate-200/70 rounded"></div>
+              <div className="h-3 w-16 bg-slate-200/70 rounded"></div>
+            </div>
+          </div>
+        ) : chartData.length === 0 ? (
           <div className="h-72 flex flex-col items-center justify-center text-nh-text-muted text-sm bg-nh-green-subtle/40 rounded-2xl border border-dashed border-[#d8e5dc] p-6">
             <span className="font-semibold text-nh-text-main text-base mb-1">No Data Points Available</span>
             <p className="text-xs text-nh-text-muted text-center max-w-sm">
@@ -403,10 +428,6 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                     dot={(props: any) => {
                       const { cx, cy, payload } = props;
                       if (showAnomalies && payload.is_anomaly) {
-                        // Status-styled anomaly dots per Section 15 Item 13:
-                        // - Confirmed: filled red (#dc2626)
-                        // - Pending: amber (#d97706)
-                        // - Dismissed: hollow gray (#94a3b8)
                         const status = payload.anomaly_status;
                         const fill =
                           status === 'confirmed'

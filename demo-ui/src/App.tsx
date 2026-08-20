@@ -280,7 +280,12 @@ export const App: React.FC = () => {
                   </div>
                 </div>
 
-                <TrendChart patientId={selectedPatientId} points={trendPoints} anomalies={trendAnomalies} />
+                <TrendChart
+                  patientId={selectedPatientId}
+                  points={trendPoints}
+                  anomalies={trendAnomalies}
+                  isLoading={loadingTrend}
+                />
               </div>
             </>
           ) : (
